@@ -95,6 +95,13 @@ class Processor:
                             bericht = Log.log.endTimer("objCreate - objs=" + str(len(self.bagObjecten)))
                             Database().log_actie('create_objects', 'idem', bericht)
 
+        elif (doc_tag == 'BCAdresProduct') or (doc_tag == 'BCAdresseerbaarObjectGeoProduct'):
+            mode = 'BagCompact'
+            Log.log.startTimer("objCreate")
+            self.bagObjecten = BAGObjectFabriek.bof.BAGObjectArrayBijXML(node)
+            bericht = Log.log.endTimer("objCreate - objs=" + str(len(self.bagObjecten)))
+            Database().log_actie('create_objects', 'idem', bericht)
+
         elif doc_tag == 'BAG-Mutaties-Deelbestand-LVC':
             mode = 'Mutatie'
             #firstchild moet zijn 'antwoord'
@@ -181,16 +188,21 @@ class Processor:
         self.database.verbind()
         rels = 0
         wijzigingen = 0
+        # Eerst updates dan inserts
+        # Is niet resource-zuinig. Andere optie is om de gewijzigde
+        # elementen een update te laten maken die alle orginele velden
+        # meenemen, in BagObject.maakUpdate
         for bagObject in self.bagObjecten:
+            actie = 0
             if bagObject.origineelObj:
                 # Mutatie: wijziging
                 bagObject.maakUpdateSQL()
                 wijzigingen += 1
-            else:
-                # Mutatie: nieuw object
-                bagObject.maakInsertSQL()
+                actie += 1
             try:
-                self.database.uitvoeren(bagObject.sql, bagObject.inhoud)
+                if actie > 0:
+
+                    self.database.uitvoeren(bagObject.sql, bagObject.inhoud)
             except (Exception), e:
                 # Heeft geen zin om door te gaan
                 Log.log.error("database fout bij insert, ik stop met dit bestand")
@@ -202,6 +214,28 @@ class Processor:
                     self.database.uitvoeren(sql, relatie.inhoud[i])
                     i += 1
                     rels += 1
+
+        for bagObject in self.bagObjecten:
+            actie = 0;
+            if bagObject.origineelObj is None:
+                # Mutatie: nieuw object
+                bagObject.maakInsertSQL()
+                actie +=1
+            try:
+                if actie > 0:
+                    self.database.uitvoeren(bagObject.sql, bagObject.inhoud)
+            except (Exception), e:
+                # Heeft geen zin om door te gaan
+                Log.log.error("database fout bij insert, ik stop met dit bestand")
+                break
+
+            for relatie in bagObject.relaties:
+                i = 0
+                for sql in relatie.sql:
+                    self.database.uitvoeren(sql, relatie.inhoud[i])
+                    i += 1
+                    rels += 1
+
 
         self.database.connection.commit()
         bericht = Log.log.endTimer("dbEnd - nieuw=" + str(len(self.bagObjecten) - wijzigingen) + " gewijzigd=" + str(wijzigingen) + " rels=" + str(rels))
