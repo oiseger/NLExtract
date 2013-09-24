@@ -119,22 +119,24 @@ class Processor:
                                     nieuwObj = None
                                     for mutatienode in productnode:
                                         if stripschema(mutatienode.tag) == 'Nieuw':
-                                            # Log.log.info("Nieuw Object")
+                                            # Nieuw object
                                             self.bagObjecten.extend(
                                                 BAGObjectFabriek.bof.BAGObjectArrayBijXML(mutatienode))
                                         elif stripschema(mutatienode.tag) == 'Origineel':
+                                            # Orgineel deel van object
                                             objs = BAGObjectFabriek.bof.BAGObjectArrayBijXML(mutatienode)
                                             if len(objs) > 0:
                                                 origineelObj = objs[0]
                                         elif stripschema(mutatienode.tag) == 'Wijziging':
+                                            # Mutatie deel van object
                                             objs = BAGObjectFabriek.bof.BAGObjectArrayBijXML(mutatienode)
 
                                             if len(objs) > 0:
                                                 nieuwObj = objs[0]
                                                 if nieuwObj and origineelObj:
+                                                    # Neem nieuw en orgineel object op in lijst
                                                     nieuwObj.origineelObj = origineelObj
                                                     self.bagObjecten.append(nieuwObj)
-                                                    # Log.log.info("Wijziging Object")
                                                     origineelObj = None
                                                     nieuwObj = None
 
@@ -208,12 +210,13 @@ class Processor:
                 Log.log.error("database fout bij insert, ik stop met dit bestand")
                 break
 
-            for relatie in bagObject.relaties:
-                i = 0
-                for sql in relatie.sql:
-                    self.database.uitvoeren(sql, relatie.inhoud[i])
-                    i += 1
-                    rels += 1
+            if actie > 0:
+				for relatie in bagObject.relaties:
+					i = 0
+					for sql in relatie.sql:
+						self.database.uitvoeren(sql, relatie.inhoud[i])
+						i += 1
+						rels += 1
 
         for bagObject in self.bagObjecten:
             actie = 0;
@@ -229,12 +232,13 @@ class Processor:
                 Log.log.error("database fout bij insert, ik stop met dit bestand")
                 break
 
-            for relatie in bagObject.relaties:
-                i = 0
-                for sql in relatie.sql:
-                    self.database.uitvoeren(sql, relatie.inhoud[i])
-                    i += 1
-                    rels += 1
+            if actie > 0:
+				for relatie in bagObject.relaties:
+					i = 0
+					for sql in relatie.sql:
+						self.database.uitvoeren(sql, relatie.inhoud[i])
+						i += 1
+						rels += 1
 
 
         self.database.connection.commit()
