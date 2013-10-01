@@ -237,7 +237,7 @@ class Processor:
                         self.database.uitvoeren(sql, relatie.inhoud[i])
                         rels += 1
 
-           except (Exception), e:
+            except (Exception), e:
                # Heeft geen zin om door te gaan
                Log.log.error("database fout bij insert, ik stop met dit bestand")
                break
