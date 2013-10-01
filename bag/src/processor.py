@@ -49,6 +49,8 @@ class Processor:
 
     def processDOM(self, node):
         self.bagObjecten = []
+        self.bagObjectenNieuw = []
+        self.bagObjectenMutatie = []
         mode = "Onbekend"
         doc_tag = stripschema(node.tag)
 
@@ -95,13 +97,6 @@ class Processor:
                             bericht = Log.log.endTimer("objCreate - objs=" + str(len(self.bagObjecten)))
                             Database().log_actie('create_objects', 'idem', bericht)
 
-        elif (doc_tag == 'BCAdresProduct') or (doc_tag == 'BCAdresseerbaarObjectGeoProduct'):
-            mode = 'BagCompact'
-            Log.log.startTimer("objCreate")
-            self.bagObjecten = BAGObjectFabriek.bof.BAGObjectArrayBijXML(node)
-            bericht = Log.log.endTimer("objCreate - objs=" + str(len(self.bagObjecten)))
-            Database().log_actie('create_objects', 'idem', bericht)
-
         elif doc_tag == 'BAG-Mutaties-Deelbestand-LVC':
             mode = 'Mutatie'
             #firstchild moet zijn 'antwoord'
@@ -119,8 +114,8 @@ class Processor:
                                     nieuwObj = None
                                     for mutatienode in productnode:
                                         if stripschema(mutatienode.tag) == 'Nieuw':
-                                            # Nieuw object
-                                            self.bagObjecten.extend(
+                                            # Log.log.info("Nieuw Object")
+                                            self.bagObjectenNieuw.extend(
                                                 BAGObjectFabriek.bof.BAGObjectArrayBijXML(mutatienode))
                                         elif stripschema(mutatienode.tag) == 'Origineel':
                                             # Orgineel deel van object
@@ -136,11 +131,12 @@ class Processor:
                                                 if nieuwObj and origineelObj:
                                                     # Neem nieuw en orgineel object op in lijst
                                                     nieuwObj.origineelObj = origineelObj
-                                                    self.bagObjecten.append(nieuwObj)
+                                                    self.bagObjectenMutatie.append(nieuwObj)
                                                     origineelObj = None
                                                     nieuwObj = None
 
-                            bericht = Log.log.endTimer("objCreate (mutaties) - objs=" + str(len(self.bagObjecten)))
+                            bericht = Log.log.endTimer("objCreate (mutaties, gemuteerde objecten) - objs=" + str(len(self.bagObjectenMutatie)))
+                            bericht = Log.log.endTimer("objCreate (mutaties, nieuwe objecten) - objs=" + str(len(self.bagObjectenNieuw)))
                             Database().log_actie('create_objects', 'idem', bericht)
 
         elif doc_tag == 'BAG-Extract-Levering':
@@ -190,56 +186,61 @@ class Processor:
         self.database.verbind()
         rels = 0
         wijzigingen = 0
+
+        # In het orginele NLExtract wordt de lijst bagObjecten doorlopen en voor ieder element
+        #   insert of update gedaan.
+        #   Gevolg is dat er eerst een insert wordt gedaan dat daarna ten onrechte ge-update wordt
+        #   Immers: de id gebruikt bij update om record te bepalen is gelijk !
+        #
+        # Hier geimplementeerde oplossing is om eerst alle updates uit te voeren en pas
+        # daarna de nieuwe te inserten. 
+        # Omdat dbStoreInsert() alleen bij mutaties gebruikt wordt zijn er twee lijsten aangemaakt:
+        # bagObjectenNieuw en bagObjectenMutatie
+        #  
+        # Andere manieren om het op te lossen is: in 1 lijst en de lijst eenmaal doorlopen en bij ieder nieuw obj te
+        #  testen of er in de lijst ook een mutatie is, deze eerst uit te voeren. Nadeel is de extra administratie bij 
+        #  doorlopen van de lijst 
+        #
+        # Nog een andere manier is om bij het aanmaken van het update statement niet alleen de id te gebruiken maar 
+        # alle velden
+
+        #
         # Eerst updates dan inserts
-        # Is niet resource-zuinig. Andere optie is om de gewijzigde
-        # elementen een update te laten maken die alle orginele velden
-        # meenemen, in BagObject.maakUpdate
-        for bagObject in self.bagObjecten:
-            actie = 0
+        for bagObject in self.bagObjectenMutatie:
             if bagObject.origineelObj:
-                # Mutatie: wijziging
-                bagObject.maakUpdateSQL()
-                wijzigingen += 1
-                actie += 1
-            try:
-                if actie > 0:
-
+                try:
+                    # Mutatie: wijziging
+                    bagObject.maakUpdateSQL()
+                    wijzigingen += 1
                     self.database.uitvoeren(bagObject.sql, bagObject.inhoud)
-            except (Exception), e:
-                # Heeft geen zin om door te gaan
-                Log.log.error("database fout bij insert, ik stop met dit bestand")
-                break
+    
+                    for relatie in bagObject.relaties:
+                        for sql in relatie.sql:
+                            self.database.uitvoeren(sql, relatie.inhoud[i])
+                            rels += 1
+                except (Exception), e:
+                    # Heeft geen zin om door te gaan
+                    Log.log.error("database fout bij insert, ik stop met dit bestand")
+                    break
+            else:
+                Log.log.error("Geen origineelObj gevonden !")
 
-            if actie > 0:
-				for relatie in bagObject.relaties:
-					i = 0
-					for sql in relatie.sql:
-						self.database.uitvoeren(sql, relatie.inhoud[i])
-						i += 1
-						rels += 1
 
-        for bagObject in self.bagObjecten:
-            actie = 0;
-            if bagObject.origineelObj is None:
-                # Mutatie: nieuw object
+        for bagObject in self.bagObjectenNieuw:
+            # Nieuw object
+            try:
                 bagObject.maakInsertSQL()
-                actie +=1
-            try:
-                if actie > 0:
-                    self.database.uitvoeren(bagObject.sql, bagObject.inhoud)
-            except (Exception), e:
-                # Heeft geen zin om door te gaan
-                Log.log.error("database fout bij insert, ik stop met dit bestand")
-                break
+                self.database.uitvoeren(bagObject.sql, bagObject.inhoud)
 
-            if actie > 0:
-				for relatie in bagObject.relaties:
-					i = 0
-					for sql in relatie.sql:
-						self.database.uitvoeren(sql, relatie.inhoud[i])
-						i += 1
-						rels += 1
+                for relatie in bagObject.relaties:
+                    for sql in relatie.sql:
+                        self.database.uitvoeren(sql, relatie.inhoud[i])
+                        rels += 1
 
+           except (Exception), e:
+               # Heeft geen zin om door te gaan
+               Log.log.error("database fout bij insert, ik stop met dit bestand")
+               break
 
         self.database.connection.commit()
         bericht = Log.log.endTimer("dbEnd - nieuw=" + str(len(self.bagObjecten) - wijzigingen) + " gewijzigd=" + str(wijzigingen) + " rels=" + str(rels))
